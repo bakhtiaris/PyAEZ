@@ -293,7 +293,8 @@ def YieldReductionByWaterDeficit(yloss_f, eta_cycle, etm_cycle, cycle_len, d_per
         sum += d_per[i]
         cumu_arr[i] = sum
 
-    d_days = np.round(cycle_len * (np.cumsum(cumu_arr)/100) ).astype('int')
+    # d_days = np.round(cycle_len * (np.cumsum(cumu_arr)/100) ).astype('int')
+    d_days = np.round(cycle_len * (cumu_arr / 100)).astype('int32')
 
     eta_d1 = np.sum( eta_cycle[0:d_days[0]] )
     eta_d2 = np.sum( eta_cycle[d_days[0]:d_days[1]] )

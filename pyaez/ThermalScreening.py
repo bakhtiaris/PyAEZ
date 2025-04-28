@@ -77,37 +77,42 @@ class ThermalScreening(object):
 @nb.jit(nopython = True)
 def getReductionFactorNumba(set_Tsum_screening:bool, LnS, LsO, LO, HnS, HsO, HO, tsum0,
                             set_CropSpecificRule:bool, crop_specific_rule_data, perennial_flag):
-    
+    """
+    Calculate the reduction factor (fc1_final) for thermal screening and crop-specific rules.
+
+    Applies TSUM-based screening first, then optionally crop-specific screening.
+    """
+    # Default reduction factor is 1 (no reduction)
     fc1_final = 1.
 
-    # TSUM screening
+    # TSUM-based screening for thermal suitability
     if set_Tsum_screening:
-        #Start TSUM screening
+        # If TSUM is within the optimal range, no reduction is applied
         if tsum0 in range(LO, HO):
             f1 = 1.
             fc1_final = min(f1, fc1_final)
 
-        # Within Sub-optimal range (Part 1) (25% reduction factor)
+        # TSUM within sub-optimal range on the lower side (25% reduction factor)
         elif tsum0 in range(LsO, LO):
             f1 = ((tsum0-LsO)/(LO-LsO)) * 0.25 + 0.75
             fc1_final = min(f1, fc1_final)
 
-        # Within Sub-optimal range (Part 2) (25% reduction factor)
+        # TSUM within sub-optimal range on the higher side (25% reduction factor)
         elif tsum0 in range(HO, HsO):
             f1 = ((HsO-tsum0)/(HsO-HO)) * 0.25 + 0.75
             fc1_final = min(f1, fc1_final)
 
-        # Within Marginal range (Part 1) (75% reduction factor)
+        # TSUM within marginal range on the lower side (75% reduction factor)
         elif tsum0 in range(LnS, LsO):
             f1 = ((tsum0-LnS)/(LsO-LnS)) * 0.75
             fc1_final = min(f1, fc1_final)
 
-        # Within Marginal range (Part 2) (75% reduction factor)
+        # TSUM within marginal range on the higher side (75% reduction factor)
         elif tsum0 in range(HsO, HnS):
             f1 = ((HnS-tsum0)/(HnS-HsO)) * 0.75
             fc1_final = min(f1, fc1_final)
 
-        # Within Not suitable range (100% reduction factor)
+        # TSUM outside all ranges: not suitable for growth (100% reduction factor)
         elif tsum0 <= LnS or tsum0 >= HnS:
             f1 = 0
             fc1_final = min(f1, fc1_final)
@@ -129,13 +134,13 @@ def getReductionFactorNumba(set_Tsum_screening:bool, LnS, LsO, LO, HnS, HsO, HO,
         # sub_optimal  = specific_data[3]
         # not_suitable = specific_data[4]
 
-        # """Loop for each user-specified rule"""
+         # Loop through each crop-specific constraint rule
         for i in range(len(calc_value)):
 
-            # "Constraint Rule calculation for greater than"
+            # Handling "less than or equal to" type constraints
             if constr_type[i] == '<=' or constr_type[i] == '≤':
 
-                # """Check if all threshold values are the same"""
+                # If all thresholds are the same, apply a binary cutoff
                 if optimal[i] == sub_optimal[i] == not_suitable[i]:
 
                     # """Calculated value will be compared with optimum threshold"""
@@ -147,24 +152,25 @@ def getReductionFactorNumba(set_Tsum_screening:bool, LnS, LsO, LO, HnS, HsO, HO,
                         f1 = 0
                         fc1_final = min(f1, fc1_final)
 
+                # If only sub-optimal and not-suitable thresholds are the same
                 elif optimal[i] != sub_optimal[i] == not_suitable[i]:
 
                     if calc_value[i] <= optimal[i]:
                         f1 = 1
                         fc1_final = min(f1, fc1_final)
 
-                    # """If calculated value within range between optimal and sub-optimum/not-suitable"""
+                    # If calculated value within range between optimal and sub-optimum/not-suitable
                     elif calc_value[i] > optimal[i] and calc_value[i] <= sub_optimal[i]:
                         f1 = ((calc_value[i] - optimal[i])/(sub_optimal[i] - optimal[i]) * 0.25) + 0.75
                         fc1_final = min(f1, fc1_final)
 
-                    # """For calculated value beyond sub-optimum/not-suitable, use previous linear interpolation (But not sure)"""
+                    # For calculated value beyond sub-optimum/not-suitable, use previous linear interpolation (But not sure)
                         # elif self.calc_value > self.sub_optimal[i]:
                     else:
                         f1 = 0
                         fc1_final = min(f1, fc1_final)
 
-                # """If all thresholds are different, go linear interpolation to each threshold interval"""
+                # If all thresholds are different, go linear interpolation to each threshold interval
                 elif optimal[i] != sub_optimal[i] != not_suitable[i]:
 
                     if calc_value[i] <= optimal[i]:
@@ -172,19 +178,19 @@ def getReductionFactorNumba(set_Tsum_screening:bool, LnS, LsO, LO, HnS, HsO, HO,
                         fc1_final = min(f1, fc1_final)
 
 
-                    # """If calculated value within range between optimal and sub-optimum/not-suitable"""
+                    # If calculated value within range between optimal and sub-optimum/not-suitable
                     elif calc_value[i] > optimal[i] and calc_value[i] <= sub_optimal[i]:
                         f1 = ((calc_value[i] - optimal[i])/(sub_optimal[i] - optimal[i]) * 0.25) + 0.75
                         fc1_final = min(f1, fc1_final)
 
 
-                    # """For calculated value beyond sub-optimum/not-suitable, use previous linear interpolation (But not sure)"""
+                    # For calculated value beyond sub-optimum/not-suitable, use previous linear interpolation (But not sure)
                     elif calc_value[i] > sub_optimal[i] and calc_value[i] <= not_suitable[i]:
                         f1 = ((calc_value[i] - not_suitable[i])/(sub_optimal[i] - not_suitable[i]) * 0.25) + 0.75
                         fc1_final = min(f1, fc1_final)
 
 
-                    # """For calculated values beyond not-suitable threshold (not sure)"""
+                    # For calculated values beyond not-suitable threshold (not sure)
                     elif calc_value[i] > not_suitable[i]:
                         f1 = 0
                         fc1_final = min(f1, fc1_final)
@@ -193,52 +199,52 @@ def getReductionFactorNumba(set_Tsum_screening:bool, LnS, LsO, LO, HnS, HsO, HO,
 
             elif constr_type[i] == '>=' or constr_type[i] == '≥':
 
-                # """Check if all threshold values are the same"""
+                # Check if all threshold values are the same
                 if optimal[i] == sub_optimal[i] == not_suitable[i]:
 
-                    # """Calcualted value will be compared with optimum threshold"""
+                    # Calcualted value will be compared with optimum threshold
                     if calc_value[i] >= optimal[i]:
                         f1 = 1
                     else:
                         f1 = 0  # (Not sure)
                     fc1_final = min(f1, fc1_final)
 
-                # """If different next checking sub-optimal and not suitable are the same"""
+                # If different next checking sub-optimal and not suitable are the same
                 elif optimal[i] != sub_optimal[i] == not_suitable[i]:
 
                     if calc_value[i] >= optimal[i]:
                         f1 = 1
                         fc1_final = min(f1, fc1_final)
 
-                    # """If calculated value within range between optimal and sub-optimum/not-suitable"""
+                    # If calculated value within range between optimal and sub-optimum/not-suitable
                     elif calc_value[i] < optimal[i] and calc_value[i] >= sub_optimal[i]:
                         f1 = ((calc_value[i] - optimal[i])/(sub_optimal[i] - optimal[i]) * 0.25) + 0.75
                         fc1_final = min(f1, fc1_final)
 
-                    # """If calculated value beyond sub-optimum/not-suitable (Not sure)"""
+                    # If calculated value beyond sub-optimum/not-suitable (Not sure)
                     elif calc_value[i] < sub_optimal[i]:
                         f1 = 0
                         fc1_final = min(f1, fc1_final)
 
-                # """If all thresholds are different, go linear interpolation to each threshold interval"""
+                # If all thresholds are different, go linear interpolation to each threshold interval
                 elif optimal[i] != sub_optimal[i] != not_suitable[i]:
 
-                    # """Calculated value will be compared with optimum threshold"""
+                    # Calculated value will be compared with optimum threshold
                     if calc_value[i] >= optimal[i]:
                         f1 = 1
                         fc1_final = min(f1, fc1_final)
 
-                    # """If calculated value is between optimum and sub-optimum threshold"""
+                    # If calculated value is between optimum and sub-optimum threshold
                     elif calc_value[i] < optimal[i] and calc_value[i] >= sub_optimal[i]:
                         f1 = ((calc_value[i] - optimal[i])/(sub_optimal[i] - optimal[i]) * 0.25) + 0.75
                         fc1_final = min(f1, fc1_final)
 
-                    # """If calculated value between sub-optimum and not-suitable threshold"""
+                    # If calculated value between sub-optimum and not-suitable threshold
                     elif calc_value[i] < sub_optimal[i] and calc_value[i] >= not_suitable[i]:
                         f1 = ((calc_value[i] - not_suitable[i])/(sub_optimal[i] - not_suitable[i]) * 0.25) + 0.75
                         fc1_final = min(f1, fc1_final)
 
-                    # """If calculated value beyond not-suitable threshold (Not sure)"""
+                    # If calculated value beyond not-suitable threshold (Not sure)
                     elif calc_value[i] <= not_suitable[i]:
                         f1 = 0
                         fc1_final = min(f1, fc1_final)
@@ -250,55 +256,67 @@ def getReductionFactorNumba(set_Tsum_screening:bool, LnS, LsO, LO, HnS, HsO, HO,
 
 def getTemperatureSum0(temp1D):
     """
-    Calculation of temperature summation at zero degree Celsius threshold.
-    
+    Calculate the accumulated temperature sum above 0°C threshold
+    using a 5th-order polynomial interpolation for smoothing.
+
     Parameters
     ----------
-    temp1D (1-D NumPy Array): Input mean temperature (Deg C)
-    
+    temp1D : 1-D NumPy Array
+        Daily mean temperatures (in °C) over a cycle period.
+
     Returns
     -------
-    None.
+    float
+        Rounded cumulative temperature sum above 0°C.
     """
+
+    #Initialize an array for interpolated (smoothed) temperatures
     interp1D = np.zeros(temp1D.shape)
 
-    # start 5th order polynomical interpolation
+    # Generate a corresponding day index array (0, 1, 2, ..., N)
     days = np.arange(temp1D.shape[0])
+    # Perform 5th-order polynomial fitting to smooth daily temperatures
     quadspl = np.poly1d(np.polyfit(days, temp1D, 5))
+    # Evaluate the smoothed polynomial to get interpolated daily temperatures
     interp1D = quadspl(days)
-
+    # Set all temperatures <= 0°C to zero (only consider positive temperature contributions)
     interp1D[interp1D <= 0] = 0
+    # Sum up the positive daily interpolated temperatures and round to nearest integer
     return np.round(np.sum(interp1D), decimals=0)
 
 
 def getTemperatureProfile(temp1D):
     """
-    Calculation of temperature profile. The length of temperature data differs depend on 
-    crop type (annuals or perennials).
-    
+    Calculation of temperature profile based on smoothed temperature trends.
+    The length of temperature data may differ depending on the crop type 
+    (annuals or perennials).
+
     Parameters
     ----------
-    temp1 (1-D NumPy Array): Input mean temperature (Deg C)
-    
+    temp1D : 1-D NumPy Array
+        Input daily mean temperature (°C).
+
     Returns
     -------
-    None.
+    list
+        List containing counts of temperature rise/fall events across defined temperature bands.
     """
-    # Calculation of Temp Profile for 1-D numpy array of climate data input
+    # Initialize an array for interpolated temperatures
     interp1D = np.zeros(temp1D.shape)
 
-    # start 5th order polynomical interpolation
+    # Generate an array representing the day indices
     days = np.arange(temp1D.shape[0])
-
+    # Fit a 5th-order polynomial to the temperature series to smooth daily variability
     quadspl = np.poly1d(np.polyfit(days, temp1D, 5))
-
+    # Evaluate the polynomial to create a smoothed daily temperature series
     interp1D = quadspl(days)
 
-    # adjustment for differences between front day and back day
+    # Extend the temperature array by one day to help compute day-to-day differences
     meanT_daily_add1day = np.concatenate((interp1D, interp1D[0:1]))
     meanT_first = meanT_daily_add1day[:-1]
     meanT_diff = meanT_daily_add1day[1:] - meanT_daily_add1day[:-1]
 
+    # Count the number of positive temperature changes across temperature bands
     A9 = np.sum(np.logical_and(meanT_diff > 0, meanT_first < -5))
     A8 = np.sum(np.logical_and(meanT_diff > 0, np.logical_and(
         meanT_first >= -5, meanT_first < 0)))
@@ -316,6 +334,7 @@ def getTemperatureProfile(temp1D):
         meanT_first >= 25, meanT_first < 30)))
     A1 = np.sum(np.logical_and(meanT_diff > 0, meanT_first >= 30))
 
+    # Count the number of negative temperature changes across temperature bands
     B9 = np.sum(np.logical_and(meanT_diff < 0, meanT_first < -5))
     B8 = np.sum(np.logical_and(meanT_diff < 0, np.logical_and(
         meanT_first >= -5, meanT_first < 0)))
@@ -333,10 +352,11 @@ def getTemperatureProfile(temp1D):
         meanT_first >= 25, meanT_first < 30)))
     B1 = np.sum(np.logical_and(meanT_diff < 0, meanT_first >= 30))
 
-    # releasing memory
+    # Clean up memory for large arrays to improve efficiency
     del (temp1D, interp1D, days, quadspl,
             meanT_daily_add1day, meanT_first, meanT_diff)
 
+    # Return the calculated counts as a list
     return [A1, A2, A3, A4, A5, A6, A7, A8, A9, B1, B2, B3, B4, B5, B6, B7, B8, B9]
 
 
@@ -353,25 +373,49 @@ def insertCropSpecificRuleParameters(data):
 
 # 4 Modification
 def calculateTemperatureProfileClasses(data, input_temp_profile, perennial_flag):
+    """
+    Calculate derived temperature profile classification values
+    based on crop-specific rule definitions.
 
+    Parameters
+    ----------
+    data : object or structure
+        Contains information needed to define the rules.
+    input_temp_profile : list
+        List of counts for temperature transitions across categories.
+    perennial_flag : bool
+        True if the crop is perennial, False if annual.
+
+    Returns
+    -------
+    tuple
+        (calc_value, constr_type, optimal, sub_optimal, not_suitable)
+        Derived calculation values and screening thresholds.
+    """
+    # Extract rule definitions and thresholds
     Rule_data = insertCropSpecificRuleParameters(data)
 
     rule = Rule_data[0]
 
+    # Initialize containers for constraints and thresholds
     constr_type = List()
     optimal= List()
     sub_optimal= List()
     not_suitable= List()
 
+    # Fill constraint types
     for i in range(len(Rule_data[1])):
         constr_type.append(Rule_data[1][i])
     
+    # Fill optimal thresholds
     for i in range(len(Rule_data[2])):
         optimal.append(Rule_data[2][i])
     
+    # Fill sub-optimal thresholds
     for i in range(len(Rule_data[3])):
         sub_optimal.append(Rule_data[3][i])
     
+    # Fill not-suitable thresholds
     for i in range(len(Rule_data[4])):
         not_suitable.append(Rule_data[4][i])
 
@@ -380,29 +424,15 @@ def calculateTemperatureProfileClasses(data, input_temp_profile, perennial_flag)
     # optimal = Rule_data[2]
     # sub_optimal = Rule_data[3]
     # not_suitable = Rule_data[4]
+
+    # Extract the input temperature profile
     temp_profile = input_temp_profile
 
-    """For Perennials"""
+    # Handling temperature profile aggregation based on crop type
     if perennial_flag:
-        N1a = temp_profile[0]
-        N2a = temp_profile[1]
-        N3a = temp_profile[2]
-        N4a = temp_profile[3]
-        N5a = temp_profile[4]
-        N6a = temp_profile[5]
-        N7a = temp_profile[6]
-        N8a = temp_profile[7]
-        N9a = temp_profile[8]
-        
-        N1b = temp_profile[9]
-        N2b = temp_profile[10]
-        N3b = temp_profile[11]
-        N4b = temp_profile[12]
-        N5b = temp_profile[13]
-        N6b = temp_profile[14]
-        N7b = temp_profile[15]
-        N8b = temp_profile[16]
-        N9b = temp_profile[17]
+        # For perennials: sum upward and downward transition counts separately
+        N1a, N2a, N3a, N4a, N5a, N6a, N7a, N8a, N9a = temp_profile[0:9]
+        N1b, N2b, N3b, N4b, N5b, N6b, N7b, N8b, N9b = temp_profile[9:18]
 
         N1 = N1a + N1b
         N2 = N2a + N2b
@@ -415,25 +445,9 @@ def calculateTemperatureProfileClasses(data, input_temp_profile, perennial_flag)
         N9 = N9a + N9b
 
     else:
-        """For non-perennials"""
-        L1a = temp_profile[0]
-        L2a = temp_profile[1]
-        L3a = temp_profile[2]
-        L4a = temp_profile[3]
-        L5a = temp_profile[4]
-        L6a = temp_profile[5]
-        L7a = temp_profile[6]
-        L8a = temp_profile[7]
-        L9a = temp_profile[8]
-        L1b = temp_profile[9]
-        L2b = temp_profile[10]
-        L3b = temp_profile[11]
-        L4b = temp_profile[12]
-        L5b = temp_profile[13]
-        L6b = temp_profile[14]
-        L7b = temp_profile[15]
-        L8b = temp_profile[16]
-        L9b = temp_profile[17]
+        # For non-perennials (annuals): similar aggregation
+        L1a, L2a, L3a, L4a, L5a, L6a, L7a, L8a, L9a = temp_profile[0:9]
+        L1b, L2b, L3b, L4b, L5b, L6b, L7b, L8b, L9b = temp_profile[9:18]
 
         L1 = L1a + L1b
         L2 = L2a + L2b
@@ -445,8 +459,10 @@ def calculateTemperatureProfileClasses(data, input_temp_profile, perennial_flag)
         L8 = L8a + L8b
         L9 = L9a + L9b
 
+    # Evaluate crop-specific rule expressions
     calc_value = List()
     for i in range(len(rule)):
+        # Safely evaluate each rule as a formula (e.g., "N1 + N2")
         calc_value.append(eval(rule[i]))
 
     # 'Releasing the memory'
@@ -457,6 +473,7 @@ def calculateTemperatureProfileClasses(data, input_temp_profile, perennial_flag)
     #     del (temp_profile, L1, L2, L3, L4, L5, L6, L7, L8, L9, L1a, L2a, L3a, L4a,
     #             L5a, L6a, L7a, L8a, L9a, L1b, L2b, L3b, L4b, L5b, L6b, L7b, L8b, L9b)
     
+    # Return the evaluated values along with their corresponding thresholds
     return calc_value, constr_type, optimal, sub_optimal, not_suitable
 
 # ------------------Intermediate Functions (Not available for Numba enhancement) Ends Here -------------------#

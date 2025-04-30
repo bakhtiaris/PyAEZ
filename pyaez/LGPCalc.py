@@ -22,14 +22,20 @@ def rainPeak(totalPrec_monthly, meanT_daily, lgpt5_point):
         istart0(int): the starting date of the growing period
         istart1(int): the ending date of the growing period
     """
-    # ============================================
+    # Day indices for a 365-day calendar
     days_f = np.arange(0, 365)
+
+    # Identify all days where mean daily temperature exceeds 5°C
     lgpt5_veg = days_f[meanT_daily >= 5]
-    # ============================================
+    
+    # If growing period is shorter than full year
     if lgpt5_point < 365:
+        # Start from first day meeting temperature threshold
         istart0 = lgpt5_veg[0]
+        # End DOY = start DOY + growing period length - 1
         istart1 = setdat(istart0) + lgpt5_point-1
     else:
+        # If growing period spans full year, use full range
         istart0 = 0
         istart1 = lgpt5_point-1
 
@@ -116,15 +122,17 @@ def psh(ng, et0):
     Returns:
         float: soil moisture depletion fraction
     """
-    # ng = crop group
-    # eto = potential evapotranspiration [mm/day]
+    # Default for undefined crop group
     if ng == 0.:
         psh0 = 0.5
     else:
+        # Base depletion factor increases with crop group index
         psh0 = 0.3+(ng-1)*.05
 
+    # Adjust for atmospheric demand (higher ET₀ means lower psh)
     psh = psh0 + .04 * (5.-et0)
 
+    # Ensure result stays within acceptable physical limits
     if psh < 0.1:
         psh = 0.1
     elif psh > 0.8:
@@ -195,25 +203,24 @@ def EtaCalc(Tx365, Ta365, Pcp365, Txsnm, Fsnm, Eto365, wb_old, sb_old, doy, ista
         kc365 (float): a daily value of the 'crop coefficients for water requirements'
     """
 
-    # Period with Tmax <= Txsnm (precipitaton falls as snow as is added to snow bucket)
+    # Case 1: Full snow accumulation, no melt (cold winter conditions)
     if Tx365 <= Txsnm and Ta365 <= 0.:
         etm = kc_list[0] * Eto365
-
         Etm365 = etm
+        sbx = sb_old+Pcp365 # snow accumulates
 
-        sbx = sb_old+Pcp365
-
+        # Compute soil water balance with negative precipitation (to force no recharge)
         wb, wx, Eta = eta(wb_old-Pcp365, etm, Sa, D, p, Pcp365)
 
         Salim = Sa*D  
-
         if sbx >= etm:
             Sb365 = sbx-etm
-            Eta365 = etm
+            Eta365 = etm # fulfilled from snowmelt
+            wb = wb_old - etm
 
-            wb=wb_old-etm
+            # ensure within bounds
             if wb > Salim:
-                wx = wb- Salim 
+                wx = wb - Salim 
                 wb = Salim
             else:
                 wx = 0
@@ -228,15 +235,17 @@ def EtaCalc(Tx365, Ta365, Pcp365, Txsnm, Fsnm, Eto365, wb_old, sb_old, doy, ista
         Wx365 = wx
         kc365 = kc_list[0]
 
-    # Snow-melt takes place; minor evapotranspiration
+    # Case 2: Snowmelt conditions (air temp below 0, max temp above 0)
     elif Ta365 <= 0. and Tx365 >= 0.:
         etm = kc_list[1] * Eto365
         Etm365 = etm
         ks = 0.1
+
         # Snow-melt function
-        snm = min(Fsnm*(Tx365-Txsnm), sb_old)
+        snm = min(Fsnm*(Tx365-Txsnm), sb_old) # melt limited by snowpack
         sbx = sb_old - snm 
         Salim = Sa*D
+
         if sbx >= etm:
             Sb365 = sbx-etm
             Eta365 = etm
@@ -259,6 +268,7 @@ def EtaCalc(Tx365, Ta365, Pcp365, Txsnm, Fsnm, Eto365, wb_old, sb_old, doy, ista
         Wx365 = wx
         kc365 = kc_list[1]
 
+    # Case 3: Early vegetative stage (T > 0 but < 5°C)
     elif Ta365 < 5. and Ta365 > 0.:
         # Biological activities before start of growing period
         etm = kc_list[2] * Eto365
@@ -284,15 +294,14 @@ def EtaCalc(Tx365, Ta365, Pcp365, Txsnm, Fsnm, Eto365, wb_old, sb_old, doy, ista
         Sb365 = sbx
         kc365 = kc_list[2]
 
+    # Case 4: Main growing season (T >= 5°C and within LGP)
     elif lgpt5_point < 365 and Ta365 >= 5.:
-        if doy >= istart0 and doy <= istart1:
-            # case 2 -- kc increases from 0.5 to 1.0 during first month of LGP
-            # case 3 -- kc = 1 until daily Ta falls below 5C
+        if istart0 <= doy <= istart1:
+            # kc transitions from initial to mid-season over 30 days
             xx = min((doy-istart0)/30., 1.)
             kc = kc_list[3]*(1.-xx)+(kc_list[4]*xx)
         else:
-            # case 1 -- kc=0.5 for days until start of growing period
-            kc = kc_list[3]
+            kc = kc_list[3] # before start, hold at initial value
 
         etm = kc * Eto365
         Etm365 = etm
@@ -316,6 +325,7 @@ def EtaCalc(Tx365, Ta365, Pcp365, Txsnm, Fsnm, Eto365, wb_old, sb_old, doy, ista
         Sb365 = sbx
         kc365 = kc
 
+    # Case 5: All other conditions — default to late-season or fallback behavior
     else:
         etm = kc_list[4] * Eto365
         Etm365 = etm
@@ -338,7 +348,6 @@ def EtaCalc(Tx365, Ta365, Pcp365, Txsnm, Fsnm, Eto365, wb_old, sb_old, doy, ista
         kc365 = kc_list[4]
 
     return Eta365, Etm365, Wb365, Wx365, Sb365, kc365
-
 
 @jit(nopython=True)
 def setdat(dat1):

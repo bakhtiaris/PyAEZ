@@ -754,16 +754,14 @@ def calculateMoistureLimitedYieldNumba(irr_or_rain, kc, d_per, cycle_len, Prec, 
         caused by water deficit for each interval must be assessed because the deficit information is important for farmers to know how much net irrigation is needed.
     '''
     
-    # create input variables
-    wde = 0. # water deficit
-    fc2_cycle = 0.
-    fc2_all = 0.
-    fc2_final = 0.
-    eta_total = 0.
+    # Initialize variables for deficit, reduction, and evapotranspiration
+    wde = 0.            # total water deficit (ETm - ETa)
+    fc2_cycle = 0.      # stage-wise water stress reduction factor
+    fc2_all = 0.        # overall cycle-wide water stress factor
+    fc2_final = 0.      # final applied reduction factor
+    eta_total = 0.      # cumulative actual evapotranspiration (ETa)
 
-
-    # Kc factor adjustment based on local climate conditions is done for rainfed/irrigated condition
-
+    # Adjust Kc values dynamically based on local climate and condition
     adj_kc = Adjustkc_Factor(kc, d_per, cycle_len, Prec, eto, min_temp, max_temp, height, wind_sp, irr_or_rain)
     adj_kc = np.array(adj_kc)
 
@@ -774,40 +772,46 @@ def calculateMoistureLimitedYieldNumba(irr_or_rain, kc, d_per, cycle_len, Prec, 
     eta_stage = None
     etm_stage = None
     
-    # Start water balance calculation using crop-stage specific kc factors
-    water_balance_results = WaterBalance(eto, adj_kc, d_per, cycle_len, Sa, D1, D2, mean_temp, max_temp, Prec, crop_group)
-    Sb_cycle =  water_balance_results[0]
-    Wx_cycle = water_balance_results[1]
-    Wb_cycle = water_balance_results[2]
-    eta_stage =water_balance_results[3]
-    etm_stage = water_balance_results[4]
-    kc_stage = water_balance_results[5]
+    # Run crop water balance simulation
+    water_balance_results = WaterBalance(
+        eto, adj_kc, d_per, cycle_len, Sa, D1, D2, mean_temp, max_temp, Prec, crop_group
+    )
 
-    # calculate total cycle deficit and cumulative over crop stages
+    Sb_cycle = water_balance_results[0]  # Soil water storage
+    Wx_cycle = water_balance_results[1]  # Water supply
+    Wb_cycle = water_balance_results[2]  # Water balance
+    eta_stage = water_balance_results[3] # Actual ET by stage
+    etm_stage = water_balance_results[4] # Maximum ET by stage
+    kc_stage = water_balance_results[5]  # Kc per stage
+
+    # Compute actual vs max evapotranspiration over full crop cycle
     sum_eta_stage = np.sum(eta_stage)
     sum_etm_stage = np.sum(etm_stage)
 
     ratio = 0. if sum_etm_stage <=0 else sum_eta_stage/sum_etm_stage
-
     wde = sum_etm_stage - sum_eta_stage
     eta_total = sum_eta_stage
 
-    # Yield reduction factor for the overall cycle period
+   # Calculate yield reduction factor from total seasonal water deficit
     fc2_all = 1 - (yloss_f_all *(1- ratio) )
 
     if fc2_all <0: fc2_all = 0. 
 
-    # Any irrigated annuals or perennials won't go yield deficit assessment due to moisture 
+    # Perennials are assumed to receive adequate water throughout
     if perennial_flag:
         fc2_cycle = 1.
     else: 
+        # For annuals, stage-wise yield reduction is calculated
         fc2_cycle = YieldReductionByWaterDeficit(yloss_f, eta_stage, etm_stage, cycle_len, d_per)
     
+    # For irrigated crops, no water stress is assumed for final yield
     if irr_or_rain == 'I':
         fc2_final = 1.
     else:
+        # For rainfed, apply the more limiting of the two reduction factors
         fc2_final = min(fc2_cycle, fc2_all)
 
+    # Apply reduction factor to potential yield
     yld_w = y_potential * fc2_final
 
     return wde, fc2_final, eta_total,  yld_w
@@ -823,16 +827,14 @@ def calculateMoistureLimitedYieldNumbaIntermediates(irr_or_rain, kc, d_per, cycl
         caused by water deficit for each interval must be assessed because the deficit information is important for farmers to know how much net irrigation is needed.
     '''
     
-    # create input variables
-    wde = 0. # water deficit
-    fc2_cycle = 0.
-    fc2_all = 0.
-    fc2_final = 0.
-    eta_total = 0.
+    # Initialize core outputs
+    wde = 0.        # Water deficit
+    fc2_cycle = 0.  # Stage-wise yield reduction
+    fc2_all = 0.    # Entire cycle yield reduction
+    fc2_final = 0.  # Final yield reduction applied
+    eta_total = 0.  # Total actual evapotranspiration
 
-
-    # Kc factor adjustment based on local climate conditions are done to rainfed condition only
-
+    # Adjust kc values based on local conditions (used for both irrigation types)
     adj_kc = Adjustkc_Factor(kc, d_per, cycle_len, Prec, eto, min_temp, max_temp, height, wind_sp, irr_or_rain)
     adj_kc = np.array(adj_kc)
 
@@ -843,42 +845,50 @@ def calculateMoistureLimitedYieldNumbaIntermediates(irr_or_rain, kc, d_per, cycl
     eta_stage = None
     etm_stage = None
     
-    # Start water balance calculation using crop-stage specific kc factors
-    water_balance_results = WaterBalance(eto, adj_kc, d_per, cycle_len, Sa, D1, D2, mean_temp, max_temp, Prec, crop_group)
-    Sb_cycle =  water_balance_results[0]
-    Wx_cycle = water_balance_results[1]
-    Wb_cycle = water_balance_results[2]
-    eta_stage =water_balance_results[3]
-    etm_stage = water_balance_results[4]
+     # Run crop water balance simulation
+    water_balance_results = WaterBalance(
+        eto, adj_kc, d_per, cycle_len, Sa, D1, D2, mean_temp, max_temp, Prec, crop_group
+    )
 
-    # calculate total cycle deficit and cumulative over crop stages
+    Sb_cycle =  water_balance_results[0]    # Soil moisture buffer
+    Wx_cycle = water_balance_results[1]     # Available water supply
+    Wb_cycle = water_balance_results[2]     # Net balance
+    eta_stage = water_balance_results[3]    # Actual ET by stage
+    etm_stage = water_balance_results[4]    # Max ET by stage
+    kc_stage   = water_balance_results[5]   # Kc per stage
+    pc_stage   = water_balance_results[6]   # Depletion threshold per stage
+
+    # Aggregate ET metrics over entire cycle
     sum_eta_stage = np.sum(eta_stage)
     sum_etm_stage = np.sum(etm_stage)
-
     ratio = 0. if sum_etm_stage <=0 else sum_eta_stage/sum_etm_stage
 
     wde = sum_etm_stage - sum_eta_stage
     eta_total = sum_eta_stage
 
-    # Yield reduction factor for the overall cycle period
+    # Calculate yield loss over full cycle using empirical coefficient
     fc2_all = 1 - (yloss_f_all *(1- ratio) )
+    if fc2_all <0:
+        fc2_all = 0. 
 
-    if fc2_all <0: fc2_all = 0. 
-
-    # Any irrigated annuals or perennials won't go yield deficit assessment due to moisture 
+    # Perennial crops are assumed to have consistent water supply, no cycle-level stress
     if perennial_flag:
         fc2_cycle = 1.
     else: 
+        # For annuals, calculate yield loss per stage
         fc2_cycle = YieldReductionByWaterDeficit(yloss_f, eta_stage, etm_stage, cycle_len, d_per)
     
+    # For irrigated crops, water stress is assumed fully mitigated
     if irr_or_rain == 'I':
         fc2_final = 1.
     else:
         fc2_final = min(fc2_cycle, fc2_all)
 
+    # Calculate final moisture-limited yield
     yld_w = y_potential * fc2_final
 
-    return wde, fc2_final, eta_total,  yld_w, fc2_cycle, fc2_all, adj_kc, ratio, Sb_cycle, Wx_cycle, Wb_cycle, eta_stage, etm_stage, water_balance_results[5], water_balance_results[6]
+    # Return detailed intermediates and diagnostics
+    return wde, fc2_final, eta_total,  yld_w, fc2_cycle, fc2_all, adj_kc, ratio, Sb_cycle, Wx_cycle, Wb_cycle, eta_stage, etm_stage, kc_stage, pc_stage
 
 @nb.jit(nopython = True)
 def calculateMoistureLimitedYieldNumbaIntermediatesII(irr_or_rain, kc, d_per, cycle_len, Prec, eto, min_temp, max_temp, height, wind_sp,

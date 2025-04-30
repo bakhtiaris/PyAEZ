@@ -32,11 +32,11 @@ def calculateETONumba(cycle_begin, cycle_end, latitude, alt,  minT_daily, maxT_d
     Returns:
         eto (1-D NumPy Array): pixel-based time-series reference evapotranspiration [mm/day]
     """        
-    # constants
+    # Mean daily temperature and latent heat of vaporization (MJ/kg)
     tavg = 0.5*(maxT_daily+minT_daily)  # Averaged temperature
     lam = 2.501 - 0.002361 * tavg  # Latent heat of vaporization
 
-    # Wind speed
+    # Wind speed floor based on FAO recommendation
     u2m = windspeed_daily.copy()
     # limit to no less than 0.5 m/s; FAO 56, p.63
     u2m[windspeed_daily < 0.5] = 0.5
@@ -50,38 +50,41 @@ def calculateETONumba(cycle_begin, cycle_end, latitude, alt,  minT_daily, maxT_d
     # es = 0.5*(es_tmin + es_tmax)
     # ea = rel_humidity * es  # Actual Vapor Pressure derived from relative humidity
 
-    # slope vapour pressure curve
+    # Slope of saturation vapor pressure curve
     dlmx = 4098. * es_tmax / (maxT_daily + 237.3)**2
     dlmn = 4098. * es_tmin / (minT_daily + 237.3)**2
     dl = 0.5* (dlmx + dlmn)
 
-    # Atmospheric pressure
+    # Atmospheric pressure (kPa) as a function of altitude
     ap = 101.3*np.power(((293-(0.0065*alt))/293), 5.256)
 
     # Psychrometric constant
     gam = 0.0016286 * ap/lam
 
-    hw = 200.
-    ht = 190.
-    hc = 12.
+    # Canopy and aerodynamic resistance parameters
+    hw = 200.   # wind measurement height
+    ht = 190.   # temperature measurement height
+    hc = 12.    # crop height
 
-    # aerodynamic resistance (changed based on FORTRAN routine)
+    # Aerodynamic resistance (s/m) using FAO formulation
     rhoa = (np.log((hw-(0.667*hc))/(0.123*hc)) * np.log((ht-(0.667*hc))/(0.0123*hc)))/ (0.41 * 0.41)
 
-    # crop canopy resistance
+    # Canopy resistance (s/m) based on LAI assumption
     Rl = 100  # daily stomata resistance of a single leaf (s/m)
     
     # Standard is xLAI = 24
     RLAI = 24 * 0.12
     rhoc = Rl/(0.5*RLAI)  # crop canopy resistance
 
+    # Modified psychrometric constant
     gamst = gam * (1. + (rhoc/rhoa * u2m))
 
     # net radiation Rn = Rns - Rnl
-    # Julien days of middle day of months
+    # Day-of-year array for radiation calculations
     dayoyr = np.arange(cycle_begin, cycle_end+1)
     months = np.arange(1,13)
 
+    # Approximate midpoint DOYs for each month (FAO method)
     if leap_year:
         dayoyr[:31] = int(30.42 * months[0] - 15.23)
         dayoyr[31:60]=  int(30.42 * months[1] - 15.23)
@@ -109,13 +112,16 @@ def calculateETONumba(cycle_begin, cycle_end, latitude, alt,  minT_daily, maxT_d
         dayoyr[304:334]=  int(30.42 * months[10] - 15.23)
         dayoyr[334:]=  int(30.42 * months[11] - 15.23)
 
+    # Convert latitude to radians
     latr = latitude * np.pi/180.
 
     # (a) calculate extraterrestrial radiation
-    # solar declination (rad)
+    # Solar declination and relative Earth-Sun distance
     sdcl = 0.4093 * np.sin((0.017214206 * dayoyr) - 1.405)
     # relative distance earth to sun
     sdst = 1.0 + 0.033 * np.cos(0.017214206 * dayoyr)
+
+    # Calculate sunset hour angle and day length
     xx = np.sin(sdcl) * np.sin(latr)
     yy = np.cos(sdcl) * np.cos(latr)
     zz = xx/yy
@@ -142,19 +148,21 @@ def calculateETONumba(cycle_begin, cycle_end, latitude, alt,  minT_daily, maxT_d
             omg[i] = np.arctan(zz[i]/ np.sqrt(1.- (zz[i] * zz[i]))) + 1.5708
             dayhr[i] = 24. * (omg[i]/np.pi)
 
+    # Extraterrestrial radiation (Ra)
     ra = 37.586 * sdst * ((omg*xx) + (np.sin(omg)*yy))
 
     # (b) solar radiation Rs (0.25, 0.50 Angstrom coefficients)
     # In FORTRAN, incoming radiation is calculated from sunshine hour data by this formula
     # rs = (0.25 + (0.50 * (sd/dayhr))) * ra
 
-    # In PyAEZ, incoming shortwave radiation comes from input data
+    # Incoming shortwave radiation from input, Rs
     rs = shortRad_daily
-    rs0 = (0.75 + (2e-5 * alt)) * ra
+    rs0 = (0.75 + (2e-5 * alt)) * ra    # Clear-sky radiation
 
     # (c) net shortwave radiation Rns = (1 - alpha) * Rs
     # (alpha for grass = 0.23)
-    rns = 0.77 * rs
+    # Net shortwave radiation (Rns)
+    rns = 0.77 * rs # (1 - albedo) * Rs, assuming albedo = 0.23
 
     # (d) net longwave radiation Rnl
     # Stefan-Boltzmann constant [MJ K-4 m-2 day-1]
@@ -172,14 +180,13 @@ def calculateETONumba(cycle_begin, cycle_end, latitude, alt,  minT_daily, maxT_d
     TnK4 = (minT_daily + 273.16)**4
     err_fct = 0.34 - (0.139 * np.sqrt(ed))
     cloudiness_fct = (1.35 * rs/rs0) - 0.35
-
     rnl = sub_cst * ((TmK4 + TnK4)/2) * err_fct * cloudiness_fct
 
     # (e) net radiation Rn = Rns - Rnl
     rn = rns - rnl
     rn0 = rn
 
-    # (f) soil heat flux [MJ/m2/day]
+    # (f) soil heat flux [MJ/m2/day] estimated from temperature change
     ta_dublicate_last2 = np.append(tavg, np.array([tavg[-1]]))
     ta_dublicate_first2 = np.append(np.array([tavg[-1]]), tavg)
     G = 0.14 * (ta_dublicate_last2 - ta_dublicate_first2)
@@ -188,11 +195,12 @@ def calculateETONumba(cycle_begin, cycle_end, latitude, alt,  minT_daily, maxT_d
 
     # (g) calculate aerodynamic and radiation terms of ET0
 
+    # Penman-Monteith components
     et0ady = gam/(dl+gamst) * (900./(tavg + 273))* u2m * (ea-ed)
     et0rad = dl/(dl+gamst) * (rn - G)/lam
     
+    # Final reference evapotranspiration
     et0 = et0ady + et0rad
-
     et0 = np.where(et0<=0., 0, et0)
 
     return et0

@@ -35,10 +35,21 @@ def interpMonthlyToDaily( monthly_vector, cycle_begin, cycle_end, no_minus_value
         1D NumPy: Daily climate data vector (365 days)
     """        
 
-    doy_middle_of_month = np.arange(0,12)*30 + 15 # Calculate doy of middle of month
-    inter_fun = interp1d(doy_middle_of_month, monthly_vector, kind='quadratic', fill_value='extrapolate')
+    # Approximate DOYs for midpoints of each month: 15, 45, ..., 345
+    doy_middle_of_month = np.arange(0,12)*30 + 15
+
+    # Interpolation function: quadratic for smooth transitions, extrapolated beyond bounds
+    inter_fun = interp1d(
+        doy_middle_of_month,
+        monthly_vector, 
+        kind='quadratic', 
+        fill_value='extrapolate'
+    )
+
+    # Evaluate interpolated values across the specified daily range
     daily_vector = inter_fun( np.arange(cycle_begin,cycle_end+1) )
 
+    # If enabled, clip negative values to zero
     if no_minus_values:
         daily_vector[daily_vector<0] = 0
 
@@ -55,32 +66,34 @@ def averageDailyToMonthly(daily_vector, leap_year:False):
     """        
     monthly_vector = np.zeros(12)
 
+    # For leap years (Feb has 29 days, total 366 days)
     if leap_year:
-        monthly_vector[0] = np.sum(daily_vector[:31])/31
-        monthly_vector[1] = np.sum(daily_vector[31:60])/29
-        monthly_vector[2] = np.sum(daily_vector[60:91])/31
-        monthly_vector[3] = np.sum(daily_vector[91:121])/30
-        monthly_vector[4] = np.sum(daily_vector[121:152])/31
-        monthly_vector[5] = np.sum(daily_vector[152:182])/30
-        monthly_vector[6] = np.sum(daily_vector[182:213])/31
-        monthly_vector[7] = np.sum(daily_vector[213:244])/31
-        monthly_vector[8] = np.sum(daily_vector[244:274])/30
-        monthly_vector[9] = np.sum(daily_vector[274:305])/31
-        monthly_vector[10] = np.sum(daily_vector[305:335])/30
-        monthly_vector[11] = np.sum(daily_vector[335:])/31
+        monthly_vector[0] = np.sum(daily_vector[:31])/31        # Jan
+        monthly_vector[1] = np.sum(daily_vector[31:60])/29      # Feb
+        monthly_vector[2] = np.sum(daily_vector[60:91])/31      # Mar
+        monthly_vector[3] = np.sum(daily_vector[91:121])/30     # Apr
+        monthly_vector[4] = np.sum(daily_vector[121:152])/31    # May
+        monthly_vector[5] = np.sum(daily_vector[152:182])/30    # Jun
+        monthly_vector[6] = np.sum(daily_vector[182:213])/31    # Jul
+        monthly_vector[7] = np.sum(daily_vector[213:244])/31    # Aug
+        monthly_vector[8] = np.sum(daily_vector[244:274])/30    # Sep
+        monthly_vector[9] = np.sum(daily_vector[274:305])/31    # Oct
+        monthly_vector[10] = np.sum(daily_vector[305:335])/30   # Nov
+        monthly_vector[11] = np.sum(daily_vector[335:])/31      # Dec
     else:
-        monthly_vector[0] = np.sum(daily_vector[:31])/31
-        monthly_vector[1] = np.sum(daily_vector[31:59])/28
-        monthly_vector[2] = np.sum(daily_vector[59:90])/31
-        monthly_vector[3] = np.sum(daily_vector[90:120])/30
-        monthly_vector[4] = np.sum(daily_vector[120:151])/31
-        monthly_vector[5] = np.sum(daily_vector[151:181])/30
-        monthly_vector[6] = np.sum(daily_vector[181:212])/31
-        monthly_vector[7] = np.sum(daily_vector[212:243])/31
-        monthly_vector[8] = np.sum(daily_vector[243:273])/30
-        monthly_vector[9] = np.sum(daily_vector[273:304])/31
-        monthly_vector[10] = np.sum(daily_vector[304:334])/30
-        monthly_vector[11] = np.sum(daily_vector[334:])/31
+        # Non-leap years (Feb has 28 days, total 365 days)
+        monthly_vector[0] = np.sum(daily_vector[:31])/31        # Jan
+        monthly_vector[1] = np.sum(daily_vector[31:59])/28      # Feb
+        monthly_vector[2] = np.sum(daily_vector[59:90])/31      # Mar
+        monthly_vector[3] = np.sum(daily_vector[90:120])/30     # Apr
+        monthly_vector[4] = np.sum(daily_vector[120:151])/31    # May
+        monthly_vector[5] = np.sum(daily_vector[151:181])/30    # Jun
+        monthly_vector[6] = np.sum(daily_vector[181:212])/31    # Jul
+        monthly_vector[7] = np.sum(daily_vector[212:243])/31    # Aug
+        monthly_vector[8] = np.sum(daily_vector[243:273])/30    # Sep
+        monthly_vector[9] = np.sum(daily_vector[273:304])/31    # Oct
+        monthly_vector[10] = np.sum(daily_vector[304:334])/30   # Nov
+        monthly_vector[11] = np.sum(daily_vector[334:])/31      # Dec
 
     return monthly_vector
 
@@ -96,10 +109,23 @@ def generateLatitudeMap(lat_min, lat_max, im_height, im_width):
     Returns:
         2D NumPy: interpolated 2D latitude map 
     """        
+    # Latitude step per pixel (assuming equally spaced pixels)
     lat_step=(lat_max-lat_min)/im_height
-    lat_lim = np.linspace(lat_min+lat_step/2, lat_max-lat_step/2, im_height)
+
+    # Center latitude for each row (raster lines from top to bottom)
+    lat_lim = np.linspace(
+        lat_min+lat_step/2, 
+        lat_max-lat_step/2, 
+        im_height
+    )
+
+    # Dummy longitudes to complete meshgrid, all set to 1 (not used here)
     lon_lim = np.linspace(1, 1, im_width) # just temporary lon values, will not affect output of this function.
+    
+    # Create 2D grid: Y_map contains latitude values for each row
     [X_map,Y_map] = np.meshgrid(lon_lim,lat_lim)
+    
+    # Flip vertically to match top-to-bottom raster layout (north at top)
     lat_map = np.flipud(Y_map)
 
     return lat_map
